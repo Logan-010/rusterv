@@ -1,9 +1,12 @@
-use actix_files::Files;
-use actix_web::{middleware::Compress, App, HttpServer};
+use axum::Router;
 use std::{env, process::exit};
+use tokio::net::TcpListener;
+use tower_http::{compression::CompressionLayer, services::ServeDir};
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         println!("USAGE: {} <PORT> <DIR>", &args[0]);
@@ -15,16 +18,18 @@ async fn main() -> std::io::Result<()> {
         .parse()
         .expect("Make sure <PORT> argument is a port number!");
 
-    println!("Listening on:\n\thttp://127.0.0.1:{port}\n\thttp://[::1]:{port}\n\t");
+    let path = &args[2];
 
-    HttpServer::new(move || {
-        App::new().wrap(Compress::default()).service(
-            Files::new("/", &args[2])
-                .show_files_listing()
-                .index_file("index.html"),
-        )
-    })
-    .bind(("localhost", port))?
-    .run()
-    .await
+    println!("Listening on:\n\thttp://localhost:{port}");
+
+    let routes = Router::new()
+        .nest_service("/", ServeDir::new(path))
+        .layer(CompressionLayer::new());
+    let listener = TcpListener::bind(("localhost", port))
+        .await
+        .expect("Failed to bind to port!");
+
+    axum::serve(listener, routes)
+        .await
+        .expect("Failed to serve server!");
 }
